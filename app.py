@@ -27,7 +27,8 @@ genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
 
 app = Flask(__name__)
 
-# --- PostgreSQL Connection Details from .env file ---
+# PostgreSQL connection details from .env file
+# You can keep these, but they will be overridden by the DATABASE_URL
 DB_NAME = os.environ.get("POSTGRES_DB_NAME")
 DB_USER = os.environ.get("POSTGRES_DB_USER")
 DB_PASSWORD = os.environ.get("POSTGRES_DB_PASSWORD")
@@ -37,18 +38,26 @@ DB_PORT = os.environ.get("POSTGRES_DB_PORT", 5432)
 def get_db_connection():
     """Establishes a connection to the PostgreSQL database."""
     try:
-        conn = psycopg2.connect(
-            dbname=DB_NAME,
-            user=DB_USER,
-            password=DB_PASSWORD,
-            host=DB_HOST,
-            port=DB_PORT
-        )
-        print("Database connection Succesful")
+        # Prioritize the single DATABASE_URL environment variable
+        db_url = os.environ.get("DATABASE_URL")
+        if db_url:
+            # Connect using the URL string
+            conn = psycopg2.connect(db_url)
+        else:
+            # Fallback to individual variables
+            conn = psycopg2.connect(
+                dbname=DB_NAME,
+                user=DB_USER,
+                password=DB_PASSWORD,
+                host=DB_HOST,
+                port=DB_PORT
+            )
+        print("Database connection Successful")
         return conn
     except psycopg2.OperationalError as e:
         print(f"Database connection failed: {e}")
         return None
+     
 
 def init_db():
     """Initializes the database tables if they don't exist."""
