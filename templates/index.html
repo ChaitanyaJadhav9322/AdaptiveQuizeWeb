@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Aptitude Test</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+<div class="sidebar" id="sidebar">
+    <button class="close-btn" onclick="toggleSidebar()">×</button>
+    <h4 class="mb-4">Quiz History</h4>
+    <div id="history-list"></div>
+</div>
+
+<div class="main-content" id="main-content">
+    <div class="container-fluid d-flex flex-column align-items-center py-5">
+        <button class="history-toggle-btn" onclick="toggleSidebar()">☰</button>
+        
+        <div class="card p-4 fade-in" id="welcome-screen">
+            <h1 class="text-center mb-4">Welcome to the Aptitude Test!</h1>
+            <p class="text-center mb-4">
+                This test will challenge your knowledge on a topic of your choice.
+                We'll ask a series of multiple-choice questions with increasing difficulty based on your performance.
+                Let's get started!
+            </p>
+            <button class="btn btn-primary w-100" onclick="showStartScreen()">Proceed</button>
+        </div>
+
+        <div class="card p-4" id="start-screen" style="display:none;">
+            <h1 class="text-center mb-4">Start Your Test</h1>
+            <div class="form-group mb-3">
+                <input type="text" id="username" class="form-control" placeholder="Enter your name" required>
+            </div>
+            <div class="form-group mb-3">
+                <input type="text" id="topic" class="form-control" placeholder="Enter topic (e.g., Mathematics)" required>
+            </div>
+            <div class="form-group mb-4">
+                <select id="num_questions" class="form-select">
+                    <option value="10">10 Questions</option>
+                    <option value="20">20 Questions</option>
+                    <option value="30">30 Questions</option>
+                </select>
+            </div>
+            <button class="btn btn-primary w-100" onclick="startQuiz()">Start Test</button>
+        </div>
+
+        <div class="card p-4 w-100" id="quiz-container" style="display:none;">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <span class="back-arrow" onclick="exitQuiz()"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="currentColor" d="M15.41 16.59L10.83 12l4.58-4.59L14 6l-6 6 6 6z"/></svg> Aptitude Test</span>
+                <span class="timer">⏱️ <span id="time-left"></span></span>
+            </div>
+            <hr class="quiz-divider">
+            <div id="question-content">
+                <div id="question-info" class="mb-3 d-flex justify-content-between">
+                    <span id="question-num" class="text-muted"></span>
+                    <span id="difficulty-level" class="badge bg-info"></span>
+                </div>
+                <h4 id="question-text" class="mb-4"></h4>
+                <div id="options-container" class="d-grid gap-3"></div>
+            </div>
+        </div>
+
+        <div id="loader" class="loader" style="display:none;"></div>
+
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+    let quizId = null;
+    let currentQuestion = null;
+    let currentQuestionIndex = 0;
+    let totalQuestions = 0;
+    let timerInterval = null;
+    let timeLeft = 0;
+    
+    document.addEventListener('DOMContentLoaded', () => {
+        fetchHistory();
+    });
+
+    function showStartScreen() {
+        document.getElementById('welcome-screen').classList.remove('fade-in');
+        document.getElementById('welcome-screen').classList.add('fade-out');
+        setTimeout(() => {
+            document.getElementById('welcome-screen').style.display = 'none';
+            document.getElementById('start-screen').style.display = 'block';
+            document.getElementById('start-screen').classList.add('fade-in');
+        }, 500);
+    }
+    
+    async function startQuiz() {
+        const username = document.getElementById('username').value;
+        const topic = document.getElementById('topic').value;
+        totalQuestions = parseInt(document.getElementById('num_questions').value);
+
+        if (!username || !topic) {
+            alert('Please enter your name and a topic.');
+            return;
+        }
+
+        document.getElementById('start-screen').classList.remove('fade-in');
+        document.getElementById('start-screen').classList.add('fade-out');
+        
+        setTimeout(async () => {
+            document.getElementById('start-screen').style.display = 'none';
+            document.getElementById('loader').style.display = 'block';
+
+            const response = await fetch('/start_quiz', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, topic, num_questions: totalQuestions })
+            });
+            const data = await response.json();
+
+            document.getElementById('loader').style.display = 'none';
+
+            if (data.error) {
+                alert(data.error);
+                exitQuiz();
+                return;
+            }
+
+            quizId = data.quiz_id;
+            currentQuestionIndex = data.question_index;
+            currentQuestion = data.question;
+            timeLeft = totalQuestions * 60;
+            
+            showQuestion(currentQuestion);
+            document.getElementById('quiz-container').style.display = 'block';
+            document.getElementById('quiz-container').classList.add('fade-in');
+            startTimer();
+        }, 500);
+    }
+
+    function showQuestion(q) {
+        document.getElementById('question-num').textContent = `Question ${currentQuestionIndex + 1} of ${totalQuestions}`;
+        document.getElementById('difficulty-level').textContent = q.difficulty.toUpperCase();
+        document.getElementById('question-text').textContent = q.question;
+
+        const optionsContainer = document.getElementById('options-container');
+        optionsContainer.innerHTML = '';
+        q.options.forEach((opt) => {
+            const optionBtn = document.createElement('button');
+            optionBtn.classList.add('btn', 'btn-option');
+            optionBtn.textContent = opt;
+            optionBtn.onclick = () => handleAnswer(opt, optionBtn);
+            optionsContainer.appendChild(optionBtn);
+        });
+    }
+    
+    async function handleAnswer(userAnswer, button) {
+        const buttons = document.querySelectorAll('.btn-option');
+        buttons.forEach(btn => btn.disabled = true);
+        
+        const isCorrect = userAnswer === currentQuestion.answer;
+        if (isCorrect) {
+            button.classList.add('btn-correct');
+            document.getElementById('question-text').innerHTML += ' <span class="emoji-feedback">🎉</span>';
+        } else {
+            button.classList.add('btn-incorrect');
+            document.getElementById('question-text').innerHTML += ' <span class="emoji-feedback">❌</span>';
+            buttons.forEach(btn => {
+                if (btn.textContent === currentQuestion.answer) {
+                    btn.classList.add('btn-correct');
+                }
+            });
+        }
+        
+        document.getElementById('loader').style.display = 'block';
+        
+        const response = await fetch('/submit_and_next', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                quiz_id: quizId,
+                question: currentQuestion,
+                user_answer: userAnswer,
+                question_index: currentQuestionIndex
+            }),
+        });
+
+        if (!response.ok) {
+            console.error('Server error:', response.status, response.statusText);
+            alert('An error occurred. Please try again.');
+            document.getElementById('loader').style.display = 'none';
+            return;
+        }
+
+        const data = await response.json();
+
+        document.getElementById('loader').style.display = 'none';
+
+        if (data.status === 'quiz_finished') {
+            await endQuiz();
+        } else {
+            currentQuestion = data.question;
+            currentQuestionIndex = data.question_index;
+            setTimeout(() => {
+                showQuestion(currentQuestion);
+            }, 1500);
+        }
+    }
+
+    function startTimer() {
+        const timerDisplay = document.getElementById('time-left');
+        timerInterval = setInterval(() => {
+            if (timeLeft <= 0) {
+                clearInterval(timerInterval);
+                endQuiz();
+                return;
+            }
+            const minutes = Math.floor(timeLeft / 60);
+            const remainingSeconds = timeLeft % 60;
+            timerDisplay.textContent = `${minutes}:${remainingSeconds < 10 ? '0' : ''}${remainingSeconds}`;
+            timeLeft--;
+        }, 1000);
+    }
+
+    async function endQuiz() {
+        clearInterval(timerInterval);
+        document.getElementById('loader').style.display = 'block';
+
+        const response = await fetch('/analyze_quiz', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ quiz_id: quizId })
+        });
+        const data = await response.json();
+
+        document.getElementById('loader').style.display = 'none';
+
+        const quizContainer = document.getElementById('quiz-container');
+        quizContainer.classList.remove('fade-in');
+        quizContainer.classList.add('fade-out');
+
+        const totalScore = data.analysis.performance_summary.match(/\d+/g)[0];
+        const totalQuestions = data.analysis.performance_summary.match(/\d+/g)[1];
+        const passPercentage = 70;
+        const scorePercentage = (totalScore / totalQuestions) * 100;
+        const resultText = scorePercentage >= passPercentage ? "Congratulations! You Passed!" : "You Failed. Better luck next time!";
+        const resultClass = scorePercentage >= passPercentage ? "text-success" : "text-danger";
+
+        setTimeout(() => {
+            quizContainer.innerHTML = `
+                <h2 class="text-center mb-4 ${resultClass}">${resultText}</h2>
+                <div class="analysis-report">
+                    <h4>Performance Summary</h4>
+                    <p>${data.analysis.performance_summary}</p>
+                    <h4>Resources & Recommendations</h4>
+                    <p>${data.analysis.recommendations}</p>
+                    <a href="/download_report/${quizId}" class="btn btn-secondary w-100 mt-4">Download Report (PDF)</a>
+                    <button class="btn btn-primary w-100 mt-2" onclick="location.reload()">Start New Quiz</button>
+                </div>
+            `;
+            quizContainer.classList.remove('fade-out');
+            quizContainer.classList.add('fade-in');
+            fetchHistory();
+        }, 500);
+    }
+            
+    function exitQuiz() {
+        if (confirm("Are you sure you want to exit the quiz? Your progress will be lost.")) {
+            clearInterval(timerInterval);
+            document.getElementById('quiz-container').classList.remove('fade-in');
+            document.getElementById('quiz-container').classList.add('fade-out');
+            
+            setTimeout(() => {
+                document.getElementById('quiz-container').style.display = 'none';
+                document.getElementById('start-screen').style.display = 'block';
+                document.getElementById('start-screen').classList.remove('fade-out');
+                document.getElementById('start-screen').classList.add('fade-in');
+            }, 500);
+        }
+    }
+
+    function toggleSidebar() {
+        document.getElementById("sidebar").classList.toggle("active");
+        document.getElementById("main-content").classList.toggle("shifted");
+    }
+
+    async function fetchHistory() {
+        const response = await fetch('/get_history');
+        const history = await response.json();
+        const historyList = document.getElementById('history-list');
+        historyList.innerHTML = '';
+        history.forEach(item => {
+            const historyItem = document.createElement('div');
+            historyItem.classList.add('history-item');
+            const scoreDisplay = item.score !== null ? `${item.score}/${item.total_questions}` : "N/A";
+            historyItem.innerHTML = `
+                <p><b>Topic:</b> ${item.topic}</p>
+                <p><b>Date:</b> ${new Date(item.start_time).toLocaleDateString()}</p>
+                <p><b>Score:</b> ${scoreDisplay}</p>
+                <a href="/download_report/${item.id}" target="_blank" class="btn btn-sm btn-history">Download PDF</a>
+            `;
+            historyList.appendChild(historyItem);
+        });
+    }
+</script>
+</body>
+</html>

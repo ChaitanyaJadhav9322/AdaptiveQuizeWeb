@@ -1,0 +1,14 @@
+# Virtual environment folder
+Conda/
+venv/
+env/
+
+# Environment variables
+.env
+
+# Python bytecode
+__pycache__/
+*.pyc
+
+# Other files to ignore
+*.log
